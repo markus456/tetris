@@ -1,3 +1,4 @@
+from cProfile import label
 import tkinter
 import random
 import time
@@ -12,6 +13,7 @@ WIN_WIDTH = 400
 WIN_HEIGHT = 600
 
 MARGIN_LEFT = 20
+MARGIN_RIGHT = 20
 MARGIN_TOP = 30
 PAD = 5
 WIDTH = 20
@@ -61,6 +63,26 @@ TEE = [
     [0, 0, 0],
 ]
 
+
+class Score:
+    def __init__(self) -> None:
+        global win
+        self.value = 0
+        self.label = tkinter.Label(win, text="Score", font=("Helvetica", 25))
+        self.label.place(x=MARGIN_LEFT + (PAD + WIDTH) * AREA_WIDTH + MARGIN_RIGHT,
+                         y=MARGIN_TOP)
+        self.strval = tkinter.StringVar()
+        self.strval.set(str(self.value))
+        self.text = tkinter.Label(
+            win, textvariable=self.strval, font=("Helvetica", 20))
+        self.text.place(x=MARGIN_LEFT + (PAD + WIDTH) * AREA_WIDTH + MARGIN_RIGHT,
+                        y=MARGIN_TOP + 40)
+
+    def add(self):
+        self.value += 1
+        self.strval.set(str(self.value))
+
+
 #
 # Variables
 #
@@ -78,6 +100,8 @@ win = tkinter.Tk(screenName="Tetris", className="Tetris")
 win.geometry("%sx%s" % (WIN_WIDTH, WIN_HEIGHT))
 
 canvas = tkinter.Canvas(width=WIN_WIDTH, height=WIN_HEIGHT)
+score = Score()
+
 
 mixer.init()
 sound = mixer.Sound("sounds/background.wav")
@@ -113,7 +137,13 @@ def new_shape():
         shape = TEE
 
     cursor["x"] = int(AREA_WIDTH / 2)
-    cursor["y"] = AREA_HEIGHT - 4
+    cursor["y"] = AREA_HEIGHT
+
+    for i in range(4):
+        if shape_is_inside(0, 0):
+            break
+        else:
+            cursor["y"] -= 1
 
     if not shape_is_inside(0, 0):
         global exit_game
@@ -128,10 +158,10 @@ def freeze_shape():
                 data[cursor["y"] + y][cursor["x"] + x] = True
 
 
-def shape_is_inside(nx, ny):
-    for y in range(0, len(shape)):
-        for x in range(0, len(shape[y])):
-            if shape[y][x] != 0:
+def is_inside(obj, nx, ny):
+    for y in range(0, len(obj)):
+        for x in range(0, len(obj[y])):
+            if obj[y][x] != 0:
                 tx = cursor["x"] + x + nx
                 ty = cursor["y"] + y + ny
 
@@ -142,13 +172,19 @@ def shape_is_inside(nx, ny):
     return True
 
 
+def shape_is_inside(nx, ny):
+    return is_inside(shape, nx, ny)
+
+
 def empty_row():
     return [False for x in range(0, AREA_WIDTH)]
 
 
 def rotate(dir):
     global shape
-    shape = np.rot90(shape, dir)
+    next_shape = np.rot90(shape, dir)
+    if is_inside(next_shape, 0, 0):
+        shape = next_shape
 
 
 def input_handler(event):
@@ -163,18 +199,18 @@ def input_handler(event):
             cursor["x"] += 1
 
     elif event.keysym == "Down" or event.keysym == "s":
-        if shape_is_inside(0, -1):
+        if not check_shape_collided(0, -1):
             cursor["y"] -= 1
 
-    elif event.keysym == "Up" or event.keysym == "w":
-        if shape_is_inside(0, 1):
-            cursor["y"] += 1
+    # elif event.keysym == "Up" or event.keysym == "w":
+    #     if shape_is_inside(0, 1):
+    #         cursor["y"] += 1
 
     elif event.keysym == "space":
         data[cursor["y"]][cursor["x"]] = not data[cursor["y"]][cursor["x"]]
 
-    elif event.keysym == "r":
-        new_shape()
+    # elif event.keysym == "r":
+    #     new_shape()
 
     elif event.keysym == "e":
         rotate(1)
@@ -182,7 +218,7 @@ def input_handler(event):
     elif event.keysym == "q":
         rotate(3)
 
-    draw_window(False)
+    draw_window()
 
 
 def check_full_rows():
@@ -191,6 +227,8 @@ def check_full_rows():
             del data[r]
             data.append(empty_row())
             check_full_rows()
+            global score
+            score.add()
             return True
     return False
 
@@ -212,32 +250,20 @@ def draw_block(x, y, fill, outline):
         (x, y), (x + WIDTH), (y + HEIGHT), fill=fill, outline=outline)
 
 
-def advance_cursor():
-    if shape_is_inside(0, -1):
-        cursor["y"] -= 1
-    else:
+def check_shape_collided(nx, ny):
+    if not shape_is_inside(nx, ny):
         freeze_shape()
         new_shape()
+        return True
+    return False
 
 
-def draw_window(trigger):
+def advance_cursor():
+    if not check_shape_collided(0, -1):
+        cursor["y"] -= 1
 
-    #
-    # Logic
-    #
 
-    global shape
-    if shape is None:
-        new_shape()
-
-    advance_cursor()
-    if check_full_rows():
-        cleared.play()
-
-    #
-    # Render
-    #
-
+def draw_window():
     canvas.delete("all")
 
     for y in range(0, AREA_HEIGHT):
@@ -248,8 +274,24 @@ def draw_window(trigger):
     draw_shape()
 
     canvas.pack()
-    if trigger:
-        win.after(1000, draw_window, True)
+
+
+def main_loop():
+    #
+    # Logic
+    #
+    global shape
+    if shape is None:
+        new_shape()
+
+    if check_full_rows():
+        cleared.play()
+
+    advance_cursor()
+
+    draw_window()
+
+    win.after(1000, main_loop)
 
     if exit_game:
         sound.stop()
@@ -259,5 +301,5 @@ def draw_window(trigger):
 
 
 win.bind("<Key>", input_handler)
-win.after(0, draw_window, True)
+win.after(0, main_loop)
 win.mainloop()
